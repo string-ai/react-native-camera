@@ -6,6 +6,7 @@
 package com.lwansbrough.RCTCamera;
 
 import android.content.ContentValues;
+import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
@@ -31,6 +32,7 @@ import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.WritableNativeMap;
+import com.googlecode.tesseract.android.TessBaseAPI;
 
 import java.io.*;
 import java.text.SimpleDateFormat;
@@ -79,6 +81,7 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
     public static final int MEDIA_TYPE_VIDEO = 2;
 
     private static ReactApplicationContext _reactContext;
+    private final TessBaseAPI _tessBaseAPI;
     private RCTSensorOrientationChecker _sensorOrientationChecker;
 
     private MediaRecorder mMediaRecorder;
@@ -93,7 +96,64 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
         _reactContext = reactContext;
         _sensorOrientationChecker = new RCTSensorOrientationChecker(_reactContext);
         _reactContext.addLifecycleEventListener(this);
+        _tessBaseAPI = new TessBaseAPI();
+        initializeTessApi(_tessBaseAPI);
     }
+
+    //make sure training data has been copied
+    private void initializeTessApi(TessBaseAPI tess) {
+        String language = "lbr";
+        String datapath = Environment.getExternalStorageDirectory().getAbsolutePath() + "/parking/tesseract/";
+        checkFile(new File(datapath + "tessdata"), language + ".traineddata");
+        tess.init(datapath, language);
+    }
+
+    private void checkFile(File dir, String fileName) {
+        if (!dir.exists()){
+            dir.mkdirs();
+        }
+        if(dir.exists()) {
+            String fullPath = dir.getAbsolutePath() + "/" + fileName;
+            File datafile = new File(fullPath);
+            if (!datafile.exists()) {
+                copyFiles(dir, fileName);
+            }
+        }
+        else{
+            throw new RuntimeException("Could not create tesseract folder on external storage");
+        }
+    }
+
+    private void copyFiles(File dir, String fileName) {
+        try {
+            //location we want the file to be at
+            String filepath = dir.getAbsolutePath() + "/" + fileName;
+
+            //get access to AssetManager
+            AssetManager assetManager = _reactContext.getApplicationContext().getAssets();
+
+            //open byte streams for reading/writing
+            InputStream instream = assetManager.open("tesseract/" + fileName);
+            OutputStream outstream = new FileOutputStream(filepath);
+
+            //copy the file to the location specified by filepath
+            byte[] buffer = new byte[1024];
+            int read;
+            while ((read = instream.read(buffer)) != -1) {
+                outstream.write(buffer, 0, read);
+            }
+            outstream.flush();
+            outstream.close();
+            instream.close();
+
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+
 
     public static ReactApplicationContext getReactContextSingleton() {
       return _reactContext;
@@ -627,6 +687,126 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
             captureWithOrientation(options, promise, orientation);
         }
     }
+
+    @ReactMethod
+    public void ocr(final ReadableMap options, final Promise promise) {
+        int orientation = options.hasKey("orientation") ? options.getInt("orientation") : RCTCamera.getInstance().getOrientation();
+        if (orientation == RCT_CAMERA_ORIENTATION_AUTO) {
+            _sensorOrientationChecker.onResume();
+            _sensorOrientationChecker.registerOrientationListener(new RCTSensorOrientationListener() {
+                @Override
+                public void orientationEvent() {
+                    int deviceOrientation = _sensorOrientationChecker.getOrientation();
+                    _sensorOrientationChecker.unregisterOrientationListener();
+                    _sensorOrientationChecker.onPause();
+                    ocrWithOrientation(options, promise, deviceOrientation);
+                }
+            });
+        } else {
+            ocrWithOrientation(options, promise, orientation);
+        }
+    }
+
+    private void ocrWithOrientation(final ReadableMap options, final Promise promise, int deviceOrientation) {
+        Camera camera = RCTCamera.getInstance().acquireCameraInstance(options.getInt("type"));
+        if (null == camera) {
+            promise.reject("No camera found.");
+            return;
+        }
+
+        RCTCamera.getInstance().setCaptureQuality(options.getInt("type"), options.getString("quality"));
+
+        if (options.hasKey("playSoundOnCapture") && options.getBoolean("playSoundOnCapture")) {
+            MediaActionSound sound = new MediaActionSound();
+            sound.play(MediaActionSound.SHUTTER_CLICK);
+        }
+
+        if (options.hasKey("quality")) {
+            RCTCamera.getInstance().setCaptureQuality(options.getInt("type"), options.getString("quality"));
+        }
+
+        Log.d(TAG, "[ocrWithOrientation] before takePicture...");
+
+        RCTCamera.getInstance().adjustCameraRotationToDeviceOrientation(options.getInt("type"), deviceOrientation);
+        camera.takePicture(null, null, new Camera.PictureCallback() {
+            @Override
+            public void onPictureTaken(byte[] data, Camera camera) {
+
+                //data = fixOrientation(data);
+
+                final Bitmap original = BitmapFactory.decodeStream(new ByteArrayInputStream(data));
+
+                // Calculate the top-left corner of the crop window relative to the ~original~ bitmap size.
+                final float cropX = 900;
+                final float cropY = 1760;
+
+                // Calculate the crop window size relative to the ~original~ bitmap size.
+                // Make sure the right and bottom edges are not outside the ImageView bounds (this is just to address rounding discrepancies).
+                final float cropWidth = Math.min(1224, original.getWidth() - cropX);
+                final float cropHeight = Math.min(430, original.getHeight() - cropY);
+
+                // Crop the subset from the original Bitmap.
+                final Bitmap cropped = Bitmap.createBitmap(original,
+                        (int) cropX,
+                        (int) cropY,
+                        (int) cropWidth,
+                        (int) cropHeight);
+
+                saveTempImage("cropped", cropped);
+                saveTempImage("original", data);
+
+                camera.stopPreview();
+                camera.startPreview();
+
+                _tessBaseAPI.setImage(cropped);
+                String text = _tessBaseAPI.getUTF8Text();
+
+                Log.d(TAG, "[ocrWithOrientation] ocr text result : " + text);
+
+                WritableMap response = new WritableNativeMap();
+                response.putString("text", text);
+                promise.resolve(response);
+
+
+            }
+        });
+    }
+
+    private void saveTempImage(String name, byte[] data) {
+        String filePath = Environment.getExternalStorageDirectory().getAbsolutePath() + "/parking/temp/";
+        new File(filePath).mkdirs();
+        filePath += name + ".jpg";
+        File pictureFile = new File(filePath);
+        Throwable error = writeDataToFile(data, pictureFile);
+        if (error != null) {
+            Log.e(TAG,"[saveTempImage] Error saving image : " + name, error);
+            return;
+        }
+        rewriteOrientation(pictureFile.getAbsolutePath());
+    }
+
+    private void saveTempImage(String name, Bitmap image) {
+        String filePath = Environment.getExternalStorageDirectory().getAbsolutePath() + "/parking/temp/";
+        new File(filePath).mkdirs();
+        filePath += name + ".jpg";
+        FileOutputStream out = null;
+        try {
+            out = new FileOutputStream(filePath);
+            image.compress(Bitmap.CompressFormat.JPEG, 100, out);
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (out != null) {
+                    out.close();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+
 
     private void captureWithOrientation(final ReadableMap options, final Promise promise, int deviceOrientation) {
         Camera camera = RCTCamera.getInstance().acquireCameraInstance(options.getInt("type"));

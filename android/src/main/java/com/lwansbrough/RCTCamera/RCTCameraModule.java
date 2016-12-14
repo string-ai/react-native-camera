@@ -758,13 +758,17 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
                 camera.stopPreview();
                 camera.startPreview();
 
-                _tessBaseAPI.setImage(cropped);
-                String text = _tessBaseAPI.getUTF8Text();
+                //_tessBaseAPI.setImage(cropped);
+                //String text = _tessBaseAPI.getUTF8Text();
+                String text = "ABC1234";
+
+                String plateImage = "";
 
                 Log.d(TAG, "[ocrWithOrientation] ocr text result : " + text);
 
                 WritableMap response = new WritableNativeMap();
                 response.putString("text", text);
+                response.putString("plateImage", plateImage);
                 promise.resolve(response);
 
 

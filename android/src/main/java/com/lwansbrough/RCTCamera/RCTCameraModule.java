@@ -6,6 +6,9 @@
 package com.lwansbrough.RCTCamera;
 
 import android.content.ContentValues;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -17,7 +20,9 @@ import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.util.Log;
+import android.util.SparseArray;
 import android.view.Surface;
+import android.widget.Toast;
 
 import com.drew.imaging.ImageMetadataReader;
 import com.drew.imaging.ImageProcessingException;
@@ -30,9 +35,13 @@ import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableMap;
+import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.bridge.WritableNativeArray;
 import com.facebook.react.bridge.WritableNativeMap;
-import com.googlecode.tesseract.android.TessBaseAPI;
+import com.google.android.gms.vision.Frame;
+import com.google.android.gms.vision.text.TextBlock;
+import com.google.android.gms.vision.text.TextRecognizer;
 
 import java.io.*;
 import java.text.SimpleDateFormat;
@@ -45,7 +54,7 @@ import java.util.Map;
 import javax.annotation.Nullable;
 
 public class RCTCameraModule extends ReactContextBaseJavaModule
-    implements MediaRecorder.OnInfoListener, MediaRecorder.OnErrorListener, LifecycleEventListener {
+        implements MediaRecorder.OnInfoListener, MediaRecorder.OnErrorListener, LifecycleEventListener {
     private static final String TAG = "RCTCameraModule";
 
     public static final int RCT_CAMERA_ASPECT_FILL = 0;
@@ -81,7 +90,7 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
     public static final int MEDIA_TYPE_VIDEO = 2;
 
     private static ReactApplicationContext _reactContext;
-    private final TessBaseAPI _tessBaseAPI;
+    //private final TessBaseAPI _tessBaseAPI;
     private RCTSensorOrientationChecker _sensorOrientationChecker;
 
     private MediaRecorder mMediaRecorder;
@@ -91,15 +100,39 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
     private Promise mRecordingPromise = null;
     private ReadableMap mRecordingOptions;
 
+    private TextRecognizer mTextRecognizer;
+
     public RCTCameraModule(ReactApplicationContext reactContext) {
         super(reactContext);
         _reactContext = reactContext;
         _sensorOrientationChecker = new RCTSensorOrientationChecker(_reactContext);
         _reactContext.addLifecycleEventListener(this);
-        _tessBaseAPI = new TessBaseAPI();
-        initializeTessApi(_tessBaseAPI);
+
+        initOcr();
+
+        //_tessBaseAPI = new TessBaseAPI();
+        //initializeTessApi(_tessBaseAPI);
     }
 
+    private void initOcr() {
+        Context context = getReactApplicationContext();
+        mTextRecognizer = new TextRecognizer.Builder(context).build();
+        if (!mTextRecognizer.isOperational()) {
+            Log.w(TAG, "Detector dependencies are not yet available.");
+
+            // Check for low storage.  If there is low storage, the native library will not be
+            // downloaded, so detection will not become operational.
+            IntentFilter lowstorageFilter = new IntentFilter(Intent.ACTION_DEVICE_STORAGE_LOW);
+            boolean hasLowStorage = getReactApplicationContext().registerReceiver(null, lowstorageFilter) != null;
+
+            if (hasLowStorage) {
+                Toast.makeText(getReactApplicationContext(), "Low Storage Error", Toast.LENGTH_LONG).show();
+                Log.w(TAG, "Low Storage Error");
+            }
+        }
+    }
+
+    /*
     //make sure training data has been copied
     private void initializeTessApi(TessBaseAPI tess) {
         String language = "lbr";
@@ -152,11 +185,11 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
             e.printStackTrace();
         }
     }
-
+*/
 
 
     public static ReactApplicationContext getReactContextSingleton() {
-      return _reactContext;
+        return _reactContext;
     }
 
     /**
@@ -732,9 +765,9 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
             @Override
             public void onPictureTaken(byte[] data, Camera camera) {
 
-                //data = fixOrientation(data);
-
                 final Bitmap original = BitmapFactory.decodeStream(new ByteArrayInputStream(data));
+
+                //data = fixOrientation(data);
 
                 // Calculate the top-left corner of the crop window relative to the ~original~ bitmap size.
                 final float cropX = 900;
@@ -752,22 +785,41 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
                         (int) cropWidth,
                         (int) cropHeight);
 
-                saveTempImage("cropped", cropped);
-                saveTempImage("original", data);
+                Frame.Builder frameBuilder = new Frame.Builder();
+                frameBuilder.setBitmap(cropped);
+                SparseArray<TextBlock> ocrResults = mTextRecognizer.detect(frameBuilder.build());
+
+                //saveTempImage("cropped", cropped);
+                //saveTempImage("original", data);
 
                 camera.stopPreview();
                 camera.startPreview();
 
-                //_tessBaseAPI.setImage(cropped);
-                //String text = _tessBaseAPI.getUTF8Text();
-                String text = "ABC1234";
 
-                String plateImage = "";
+                WritableArray textResults = new WritableNativeArray();
+                for (int i = 0; i < ocrResults.size(); ++i) {
+                    WritableMap textResult = new WritableNativeMap();
+                    TextBlock item = ocrResults.valueAt(i);
 
-                Log.d(TAG, "[ocrWithOrientation] ocr text result : " + text);
+                    if (item != null && item.getValue() != null) {
+                        Log.d(TAG, "Text detected! " + item.getValue());
+                    }
+
+                    textResult.putString("language", item.getLanguage());
+                    textResult.putString("value", item.getValue());
+                    textResult.putInt("boundingBoxWidth", item.getBoundingBox().width());
+                    textResult.putInt("boundingBoxHeight", item.getBoundingBox().height());
+
+                    textResults.pushMap(textResult);
+                }
+
+                ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                cropped.compress(Bitmap.CompressFormat.PNG, 100, byteArrayOutputStream);
+                byte[] byteArray = byteArrayOutputStream .toByteArray();
+                String plateImage = Base64.encodeToString(byteArray, Base64.DEFAULT);
 
                 WritableMap response = new WritableNativeMap();
-                response.putString("text", text);
+                response.putArray("textResults", textResults);
                 response.putString("plateImage", plateImage);
                 promise.resolve(response);
 

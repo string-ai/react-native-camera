@@ -89,6 +89,12 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
     public static final int MEDIA_TYPE_IMAGE = 1;
     public static final int MEDIA_TYPE_VIDEO = 2;
 
+    public static final double CROP_X_RATIO = 0.291005291005291;
+    public static final double CROP_Y_RATIO = 0.431547619047619;
+
+    public static final double CROP_WIDTH_RATIO = 0.404761904761905;
+    public static final double CROP_HEIGHT_RATIO = 0.106646825396825;
+
     private static ReactApplicationContext _reactContext;
     //private final TessBaseAPI _tessBaseAPI;
     private RCTSensorOrientationChecker _sensorOrientationChecker;
@@ -747,7 +753,8 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
             return;
         }
 
-        RCTCamera.getInstance().setCaptureQuality(options.getInt("type"), options.getString("quality"));
+        RCTCamera.getInstance().
+                setCaptureQuality(options.getInt("type"), options.getString("quality"));
 
         if (options.hasKey("playSoundOnCapture") && options.getBoolean("playSoundOnCapture")) {
             MediaActionSound sound = new MediaActionSound();
@@ -770,13 +777,19 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
                 //data = fixOrientation(data);
 
                 // Calculate the top-left corner of the crop window relative to the ~original~ bitmap size.
-                final float cropX = 900;
-                final float cropY = 1760;
+                final double cropX =  CROP_X_RATIO * original.getWidth();    // 900;
+                final double cropY = CROP_Y_RATIO * original.getHeight();    // 1760;
+
+                Log.d(TAG, "original.getWidth(): " + original.getWidth());
+                Log.d(TAG, "original.getHeight(): " + original.getHeight());
 
                 // Calculate the crop window size relative to the ~original~ bitmap size.
                 // Make sure the right and bottom edges are not outside the ImageView bounds (this is just to address rounding discrepancies).
-                final float cropWidth = Math.min(1224, original.getWidth() - cropX);
-                final float cropHeight = Math.min(430, original.getHeight() - cropY);
+                double cropWidth = CROP_WIDTH_RATIO * original.getWidth();
+                cropWidth = Math.min(cropWidth, original.getWidth() - cropX);     // 1224
+
+                double cropHeight = CROP_HEIGHT_RATIO * original.getHeight();
+                cropHeight = Math.min(cropHeight, original.getHeight() - cropY);  // 430
 
                 // Crop the subset from the original Bitmap.
                 final Bitmap cropped = Bitmap.createBitmap(original,
@@ -792,9 +805,8 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
                 //saveTempImage("cropped", cropped);
                 //saveTempImage("original", data);
 
-                camera.stopPreview();
-                camera.startPreview();
-
+                //camera.stopPreview();
+                //camera.startPreview();
 
                 WritableArray textResults = new WritableNativeArray();
                 for (int i = 0; i < ocrResults.size(); ++i) {

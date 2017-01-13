@@ -115,25 +115,24 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
         _reactContext.addLifecycleEventListener(this);
 
         initOcr();
-
-        //_tessBaseAPI = new TessBaseAPI();
-        //initializeTessApi(_tessBaseAPI);
     }
 
     private void initOcr() {
-        Context context = getReactApplicationContext();
-        mTextRecognizer = new TextRecognizer.Builder(context).build();
-        if (!mTextRecognizer.isOperational()) {
-            Log.w(TAG, "Detector dependencies are not yet available.");
+        if(mTextRecognizer == null) {
+            Context context = getReactApplicationContext();
+            mTextRecognizer = new TextRecognizer.Builder(context).build();
+            if (!mTextRecognizer.isOperational()) {
+                Log.w(TAG, "Detector dependencies are not yet available.");
 
-            // Check for low storage.  If there is low storage, the native library will not be
-            // downloaded, so detection will not become operational.
-            IntentFilter lowstorageFilter = new IntentFilter(Intent.ACTION_DEVICE_STORAGE_LOW);
-            boolean hasLowStorage = getReactApplicationContext().registerReceiver(null, lowstorageFilter) != null;
+                // Check for low storage.  If there is low storage, the native library will not be
+                // downloaded, so detection will not become operational.
+                IntentFilter lowstorageFilter = new IntentFilter(Intent.ACTION_DEVICE_STORAGE_LOW);
+                boolean hasLowStorage = getReactApplicationContext().registerReceiver(null, lowstorageFilter) != null;
 
-            if (hasLowStorage) {
-                Toast.makeText(getReactApplicationContext(), "Low Storage Error", Toast.LENGTH_LONG).show();
-                Log.w(TAG, "Low Storage Error");
+                if (hasLowStorage) {
+                    Toast.makeText(getReactApplicationContext(), "Low Storage Error", Toast.LENGTH_LONG).show();
+                    Log.w(TAG, "Low Storage Error");
+                }
             }
         }
     }
@@ -768,6 +767,8 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
 
         Log.d(TAG, "[ocrWithOrientation] before takePicture...");
 
+        initOcr();
+
         RCTCamera.getInstance().
                 adjustCameraRotationToDeviceOrientation(options.getInt("type"), deviceOrientation);
         camera.takePicture(null, null, new Camera.PictureCallback() {
@@ -1113,6 +1114,7 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
 
     @Override
     public void onHostDestroy() {
-        // ... do nothing
+        mTextRecognizer.release();
+        mTextRecognizer = null;
     }
 }

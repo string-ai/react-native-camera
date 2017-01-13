@@ -762,12 +762,14 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
         }
 
         if (options.hasKey("quality")) {
-            RCTCamera.getInstance().setCaptureQuality(options.getInt("type"), options.getString("quality"));
+            RCTCamera.getInstance().
+                    setCaptureQuality(options.getInt("type"), options.getString("quality"));
         }
 
         Log.d(TAG, "[ocrWithOrientation] before takePicture...");
 
-        RCTCamera.getInstance().adjustCameraRotationToDeviceOrientation(options.getInt("type"), deviceOrientation);
+        RCTCamera.getInstance().
+                adjustCameraRotationToDeviceOrientation(options.getInt("type"), deviceOrientation);
         camera.takePicture(null, null, new Camera.PictureCallback() {
             @Override
             public void onPictureTaken(byte[] data, Camera camera) {

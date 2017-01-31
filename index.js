@@ -8,6 +8,7 @@ class OcrView extends Component {
   }
 
   static propTypes = {
+    ...View.propTypes,
     onChangeMessage: React.PropTypes.func
   };
 

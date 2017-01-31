@@ -28,10 +28,12 @@ import ai.string.ocrreader.ui.camera.GraphicOverlay;
  */
 public class OcrDetectorProcessor implements Detector.Processor<TextBlock> {
 
+    private final ProcessorObserver mProcessorObserver;
     private GraphicOverlay<OcrGraphic> mGraphicOverlay;
 
-    OcrDetectorProcessor(GraphicOverlay<OcrGraphic> ocrGraphicOverlay) {
+    OcrDetectorProcessor(GraphicOverlay<OcrGraphic> ocrGraphicOverlay, ProcessorObserver processorObserver) {
         mGraphicOverlay = ocrGraphicOverlay;
+        mProcessorObserver = processorObserver;
     }
 
     /**
@@ -49,6 +51,7 @@ public class OcrDetectorProcessor implements Detector.Processor<TextBlock> {
             TextBlock item = items.valueAt(i);
             OcrGraphic graphic = new OcrGraphic(mGraphicOverlay, item);
             mGraphicOverlay.add(graphic);
+            mProcessorObserver.notifyDetections(item.getValue());
         }
     }
 

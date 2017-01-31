@@ -1,44 +1,42 @@
 package ai.string.ocrreader;
 
-import android.Manifest;
 import android.annotation.SuppressLint;
-import android.app.Activity;
-import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.PackageManager;
 import android.hardware.Camera;
-import android.support.design.widget.Snackbar;
-import android.support.v4.app.ActivityCompat;
 import android.util.Log;
 import android.view.GestureDetector;
-import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
-import android.view.View;
 import android.widget.Toast;
 
+import com.facebook.react.bridge.Arguments;
+import com.facebook.react.bridge.ReactContext;
+import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.uimanager.ReactProp;
 import com.facebook.react.uimanager.ThemedReactContext;
 import com.facebook.react.uimanager.ViewGroupManager;
+import com.facebook.react.uimanager.events.RCTEventEmitter;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.android.gms.vision.text.TextRecognizer;
 
 import java.io.IOException;
+import java.util.Random;
 
 import ai.string.ocrreader.ui.camera.CameraSource;
 import ai.string.ocrreader.ui.camera.CameraSourcePreview;
 import ai.string.ocrreader.ui.camera.GraphicOverlay;
 
 
-public class OcrReaderViewManager  extends ViewGroupManager<CameraSourcePreview> {
+
+public class OcrReaderViewManager  extends ViewGroupManager<CameraSourcePreview> implements ProcessorObserver {
     // Permission request codes need to be < 256
     private static final int RC_HANDLE_CAMERA_PERM = 2;
     // Intent request code to handle updating play services if needed.
     private static final int RC_HANDLE_GMS = 9001;
 
-    private static final String REACT_CLASS = "OcrReader";
+    private static final String REACT_CLASS = "RCTOcrView";
     private static final String LOG_TAG = OcrReaderViewManager.class.getName();
 
     private Boolean mActive = false;
@@ -47,6 +45,8 @@ public class OcrReaderViewManager  extends ViewGroupManager<CameraSourcePreview>
     private GestureDetector mGestureDetector;
     private ScaleGestureDetector mScaleGestureDetector;
     private CameraSourcePreview mPreview;
+    private ThemedReactContext mContext;
+    private final int mId = new Random().nextInt();
 
     @Override
     public String getName() {
@@ -55,7 +55,8 @@ public class OcrReaderViewManager  extends ViewGroupManager<CameraSourcePreview>
 
     @Override
     public CameraSourcePreview createViewInstance(ThemedReactContext context) {
-        mPreview = new CameraSourcePreview(context);
+        mContext = context;
+        mPreview = new CameraSourcePreview(mContext);
         return mPreview;
     }
 
@@ -68,6 +69,25 @@ public class OcrReaderViewManager  extends ViewGroupManager<CameraSourcePreview>
         else {
             stop(view);
         }
+    }
+
+
+/*
+    @ReactMethod
+    public void dumpResults(final ReadableMap options, final Promise promise) {
+
+
+
+    }
+*/
+
+
+    ThemedReactContext getContext() {
+        return mContext;
+    }
+
+    private int getId() {
+        return mId;
     }
 
     private void start(CameraSourcePreview view){
@@ -84,7 +104,17 @@ public class OcrReaderViewManager  extends ViewGroupManager<CameraSourcePreview>
     private void stop(CameraSourcePreview view){
 
 
+    }
 
+    @Override
+    public void notifyDetections(String text) {
+        WritableMap event = Arguments.createMap();
+        event.putString("text", text);
+        ReactContext reactContext = getContext();
+        reactContext.getJSModule(RCTEventEmitter.class).receiveEvent(
+                getId(),
+                "topChange",
+                event);
     }
 
     /**
@@ -128,7 +158,7 @@ public class OcrReaderViewManager  extends ViewGroupManager<CameraSourcePreview>
         // is set to receive the text recognition results and display graphics for each text block
         // on screen.
         TextRecognizer textRecognizer = new TextRecognizer.Builder(context).build();
-        textRecognizer.setProcessor(new OcrDetectorProcessor(mGraphicOverlay));
+        textRecognizer.setProcessor(new OcrDetectorProcessor(mGraphicOverlay, this));
 
         if (!textRecognizer.isOperational()) {
             // Note: The first time that an app using a Vision API is installed on a

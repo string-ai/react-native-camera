@@ -1,22 +1,14 @@
 {
-  "name": "react-native-camera",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/lwansbrough/react-native-camera.git"
-  },
-  "version": "0.4.0",
-  "description": "A Camera component for React Native. Also reads barcodes.",
-  "author": "Lochlan Wansbrough <lochie@live.com> (http://lwansbrough.com)",
+  "name": "react-ocr",
+  "version": "1.0.0",
+  "description": "OCR component for React Native.",
+  "author": "String.ai",
   "nativePackage": true,
-  "license": "MIT",
-  "homepage": "https://github.com/lwansbrough/react-native-camera",
   "keywords": [
     "react-native",
     "react",
     "native",
     "camera",
-    "qr",
-    "code",
-    "barcode"
+    "ocr"
   ]
 }

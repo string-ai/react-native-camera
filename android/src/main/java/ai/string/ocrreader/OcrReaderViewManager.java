@@ -22,13 +22,10 @@ import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.android.gms.vision.text.TextRecognizer;
 
 import java.io.IOException;
-import java.util.Random;
 
 import ai.string.ocrreader.ui.camera.CameraSource;
 import ai.string.ocrreader.ui.camera.CameraSourcePreview;
 import ai.string.ocrreader.ui.camera.GraphicOverlay;
-
-
 
 public class OcrReaderViewManager  extends ViewGroupManager<CameraSourcePreview> implements ProcessorObserver {
     // Permission request codes need to be < 256
@@ -46,7 +43,6 @@ public class OcrReaderViewManager  extends ViewGroupManager<CameraSourcePreview>
     private ScaleGestureDetector mScaleGestureDetector;
     private CameraSourcePreview mPreview;
     private ThemedReactContext mContext;
-    private final int mId = new Random().nextInt();
 
     @Override
     public String getName() {
@@ -57,6 +53,7 @@ public class OcrReaderViewManager  extends ViewGroupManager<CameraSourcePreview>
     public CameraSourcePreview createViewInstance(ThemedReactContext context) {
         mContext = context;
         mPreview = new CameraSourcePreview(mContext);
+        start(mPreview);
         return mPreview;
     }
 
@@ -71,23 +68,8 @@ public class OcrReaderViewManager  extends ViewGroupManager<CameraSourcePreview>
         }
     }
 
-
-/*
-    @ReactMethod
-    public void dumpResults(final ReadableMap options, final Promise promise) {
-
-
-
-    }
-*/
-
-
     ThemedReactContext getContext() {
         return mContext;
-    }
-
-    private int getId() {
-        return mId;
     }
 
     private void start(CameraSourcePreview view){
@@ -112,7 +94,7 @@ public class OcrReaderViewManager  extends ViewGroupManager<CameraSourcePreview>
         event.putString("text", text);
         ReactContext reactContext = getContext();
         reactContext.getJSModule(RCTEventEmitter.class).receiveEvent(
-                getId(),
+                mPreview.getId(),
                 "topChange",
                 event);
     }
@@ -190,7 +172,8 @@ public class OcrReaderViewManager  extends ViewGroupManager<CameraSourcePreview>
         mCameraSource =
                 new CameraSource.Builder(context, textRecognizer)
                         .setFacing(CameraSource.CAMERA_FACING_BACK)
-                        .setRequestedPreviewSize(1280, 1024)
+                        //.setRequestedPreviewSize(1280, 1024)
+                        .setRequestedPreviewSize(412, 302)
                         .setRequestedFps(2.0f)
                         .setFlashMode(useFlash ? Camera.Parameters.FLASH_MODE_TORCH : null)
                         .setFocusMode(autoFocus ? Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE : null)

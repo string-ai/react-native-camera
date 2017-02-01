@@ -19,11 +19,16 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
+import android.graphics.YuvImage;
 import android.hardware.Camera;
 import android.hardware.Camera.CameraInfo;
 import android.os.Build;
+import android.os.Environment;
 import android.os.SystemClock;
 import android.support.annotation.Nullable;
 import android.support.annotation.RequiresPermission;
@@ -38,6 +43,11 @@ import com.google.android.gms.common.images.Size;
 import com.google.android.gms.vision.Detector;
 import com.google.android.gms.vision.Frame;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.Thread.State;
 import java.lang.annotation.Retention;
@@ -72,6 +82,13 @@ import java.util.Map;
  */
 @SuppressWarnings("deprecation")
 public class CameraSource {
+
+    public static final double CROP_X_RATIO = 0.291005291005291;
+    public static final double CROP_Y_RATIO = 0.431547619047619;
+
+    public static final double CROP_WIDTH_RATIO = 0.404761904761905;
+    public static final double CROP_HEIGHT_RATIO = 0.106646825396825;
+
     @SuppressLint("InlinedApi")
     public static final int CAMERA_FACING_BACK = CameraInfo.CAMERA_FACING_BACK;
     @SuppressLint("InlinedApi")
@@ -133,9 +150,8 @@ public class CameraSource {
     // These values may be requested by the caller.  Due to hardware limitations, we may need to
     // select close, but not exactly the same values for these.
     private float mRequestedFps = 30.0f;
-    private int mRequestedPreviewWidth = 1024;
-    private int mRequestedPreviewHeight = 768;
-
+    private int mRequestedPreviewWidth = 412;
+    private int mRequestedPreviewHeight = 302;
 
     private String mFocusMode = null;
     private String mFlashMode = null;
@@ -1022,6 +1038,13 @@ public class CameraSource {
 
         camera.setDisplayOrientation(displayAngle);
         parameters.setRotation(angle);
+
+        Log.d(TAG, "setRotation angle: " + angle +
+                " mRotation: " + mRotation +
+                " displayAngle: " + displayAngle +
+                " degrees: " + degrees +
+                " rotation: " + rotation +
+                " cameraInfo.orientation: " + cameraInfo.orientation);
     }
 
     /**
@@ -1185,13 +1208,31 @@ public class CameraSource {
                         return;
                     }
 
-                    outputFrame = new Frame.Builder()
-                            .setImageData(mPendingFrameData, mPreviewSize.getWidth(),
-                                    mPreviewSize.getHeight(), ImageFormat.NV21)
-                            .setId(mPendingFrameId)
-                            .setTimestampMillis(mPendingTimeMillis)
-                            .setRotation(mRotation)
-                            .build();
+                    Rect wholeImage = new Rect(0, 0,
+                            mPreviewSize.getWidth(), mPreviewSize.getHeight());
+                    Rect crop = calcCrop(mPreviewSize);
+
+                    if (wholeImage.contains(crop)) {
+
+                        Bitmap cropedImage = cropImage(mPendingFrameData, mPreviewSize, crop);
+
+                        try {
+                            outputFrame = new Frame.Builder()
+                                    .setBitmap(cropedImage)
+                                    .setId(mPendingFrameId)
+                                    .setTimestampMillis(mPendingTimeMillis)
+                                    .setRotation(mRotation)
+                                    .build();
+                        } catch (Throwable t) {
+                            Log.e(TAG, "Error building outputFrame ", t);
+                            outputFrame = null;
+                        }
+
+                    }
+                    else {
+                        Log.d(TAG, "Crop not inside image :(" );
+                        outputFrame = null;
+                    }
 
                     // Hold onto the frame data locally, so that we can use this for detection
                     // below.  We need to clear mPendingFrameData to ensure that this buffer isn't
@@ -1200,12 +1241,15 @@ public class CameraSource {
                     mPendingFrameData = null;
                 }
 
+
                 // The code below needs to run outside of synchronization, because this will allow
                 // the camera to add pending frame(s) while we are running detection on the current
                 // frame.
 
                 try {
-                    mDetector.receiveFrame(outputFrame);
+                    if(outputFrame != null) {
+                        mDetector.receiveFrame(outputFrame);
+                    }
                 } catch (Throwable t) {
                     Log.e(TAG, "Exception thrown from receiver.", t);
                 } finally {
@@ -1213,5 +1257,96 @@ public class CameraSource {
                 }
             }
         }
+    }
+
+
+
+    private Bitmap cropImage(ByteBuffer mPendingFrameData, Size mPreviewSize, Rect crop) {
+        YuvImage yuvImage = new YuvImage(
+                mPendingFrameData.array(),
+                ImageFormat.NV21,
+                mPreviewSize.getWidth(),
+                mPreviewSize.getHeight(),
+                null
+        );
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        if(!yuvImage.compressToJpeg(crop, 100, outputStream)) {
+            Log.e(TAG, "Could not compress frame!");
+        }
+
+        byte [] croppeBytes = outputStream.toByteArray();
+
+        Bitmap bitmapImage = BitmapFactory.decodeByteArray(
+                croppeBytes, 0, croppeBytes.length);
+
+
+        saveTempImage(croppeBytes);
+
+        try {
+            outputStream.reset();
+            outputStream.close();
+        } catch (IOException e) {}
+
+
+        return bitmapImage;
+    }
+
+    private Rect calcCrop(Size mPreviewSize) {
+        //image size --> 412, 302
+        int left    = new Double(0.426136363636364 * mPreviewSize.getWidth()).intValue();   //150; //new Double(0.1 * mPreviewSize.getWidth()).intValue();
+        int right   = new Double(0.630681818181818* mPreviewSize.getWidth()).intValue();    // 222;    //mPreviewSize.getWidth() - left;
+        int height  = new Double(0.625 * mPreviewSize.getHeight()).intValue();              //180;   //new Double((mPreviewSize.getWidth() - (2 * left)) * 0.3).intValue();
+        int top     = new Double(0.125 * mPreviewSize.getHeight()).intValue();              //height;
+        int bottom = top + height;
+
+
+        Rect crop = new Rect(left, top, right, bottom);
+
+        /*
+        Log.d(TAG,
+                "\n left : " + left +
+                        "\n right : " + right +
+                        "\n height : " + height +
+                        "\n top : " + top +
+                        "\n bottom : " + bottom +
+                        "\n crop.width() : " + crop.width() +
+                        "\n crop.height() : " + crop.height() +
+                        "\n mPreviewSize.getWidth() : " + mPreviewSize.getWidth() +
+                        "\n mPreviewSize.getHeight() : " + mPreviewSize.getHeight());
+        */
+        return crop;
+    }
+
+    private int tempImgIdx = 0;
+    private void saveTempImage(byte[] data) {
+        tempImgIdx++;
+        if(tempImgIdx > 10) {
+            tempImgIdx = 0;
+        }
+        String name = "crop_image_" + tempImgIdx;
+        String filePath = Environment.getExternalStorageDirectory().getAbsolutePath() + "/parking/temp/";
+        new File(filePath).mkdirs();
+        filePath += name + ".jpg";
+        File pictureFile = new File(filePath);
+        Throwable error = writeDataToFile(data, pictureFile);
+        if (error != null) {
+            Log.e(TAG,"[saveTempImage] Error saving image : " + name, error);
+            return;
+        }
+    }
+
+    private Throwable writeDataToFile(byte[] data, File file) {
+        try {
+            FileOutputStream fos = new FileOutputStream(file);
+            fos.write(data);
+            fos.close();
+        } catch (FileNotFoundException e) {
+            return e;
+        } catch (IOException e) {
+            return e;
+        }
+
+        return null;
     }
 }
